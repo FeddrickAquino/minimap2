@@ -5,7 +5,7 @@ OBJS=		kthread.o kalloc.o misc.o bseq.o sketch.o sdust.o options.o index.o chain
 PROG=		minimap2
 PROG_EXTRA=	sdust minimap2-lite
 LIBS=		-lm -lz -lpthread
-
+ifeq ($(riscv_v),) # if riscv_v is not defined
 ifeq ($(arm_neon),) # if arm_neon is not defined
 ifeq ($(sse2only),) # if sse2only is not defined
 	OBJS+=ksw2_extz2_sse41.o ksw2_extd2_sse41.o ksw2_exts2_sse41.o ksw2_extz2_sse2.o ksw2_extd2_sse2.o ksw2_exts2_sse2.o ksw2_dispatch.o
@@ -14,12 +14,19 @@ else                # if sse2only is defined
 endif
 else				# if arm_neon is defined
 	OBJS+=ksw2_extz2_neon.o ksw2_extd2_neon.o ksw2_exts2_neon.o
-    INCLUDES+=-Isse2neon
+    INCLUDES+=-Isse2neon 
 ifeq ($(aarch64),)	#if aarch64 is not defined
 	CFLAGS+=-D_FILE_OFFSET_BITS=64 -mfpu=neon -fsigned-char
 else				#if aarch64 is defined
 	CFLAGS+=-D_FILE_OFFSET_BITS=64 -fsigned-char
 endif
+endif
+else	# for riscv_v
+	CC=riscv64-unknown-linux-gnu-gcc
+	OBJS+=ksw2_extz2_rvv.o ksw2_extd2_rvv.o ksw2_exts2_rvv.o
+	INCLUDES+=-Isse2rvv -I${WORK_DIR}/zlib/zlib-1.2.11
+	LIBS+=-static -L${WORK_DIR}/zlib/zlib-1.2.11
+	CFLAGS+=-march=rv64gcv -static
 endif
 
 ifneq ($(asan),)
@@ -56,9 +63,11 @@ sdust:sdust.c kalloc.o kalloc.h kdq.h kvec.h kseq.h ketopt.h sdust.h
 
 # SSE-specific targets on x86/x86_64
 
+ifeq ($(riscv_v),)
 ifeq ($(arm_neon),)   # if arm_neon is defined, compile this target with the default setting (i.e. no -msse2)
 ksw2_ll_sse.o:ksw2_ll_sse.c ksw2.h kalloc.h
 		$(CC) -c $(CFLAGS) -msse2 $(CPPFLAGS) $(INCLUDES) $< -o $@
+endif
 endif
 
 ksw2_extz2_sse41.o:ksw2_extz2_sse.c ksw2.h kalloc.h
@@ -91,6 +100,17 @@ ksw2_extd2_neon.o:ksw2_extd2_sse.c ksw2.h kalloc.h
 		$(CC) -c $(CFLAGS) $(CPPFLAGS) -DKSW_SSE2_ONLY -D__SSE2__ $(INCLUDES) $< -o $@
 
 ksw2_exts2_neon.o:ksw2_exts2_sse.c ksw2.h kalloc.h
+		$(CC) -c $(CFLAGS) $(CPPFLAGS) -DKSW_SSE2_ONLY -D__SSE2__ $(INCLUDES) $< -o $@
+
+# RISCV-specific targets
+
+ksw2_extz2_rvv.o: ksw2_extz2_sse.c ksw2.h kalloc.h
+		$(CC) -c $(CFLAGS) $(CPPFLAGS) -DKSW_SSE2_ONLY -D__SSE2__ $(INCLUDES) $< -o $@
+
+ksw2_extd2_rvv.o: ksw2_extd2_sse.c ksw2.h kalloc.h
+		$(CC) -c $(CFLAGS) $(CPPFLAGS) -DKSW_SSE2_ONLY -D__SSE2__ $(INCLUDES) $< -o $@
+
+ksw2_exts2_rvv.o: ksw2_exts2_sse.c ksw2.h kalloc.h
 		$(CC) -c $(CFLAGS) $(CPPFLAGS) -DKSW_SSE2_ONLY -D__SSE2__ $(INCLUDES) $< -o $@
 
 # other non-file targets
