@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include "kthread.h"
 
 #if (defined(WIN32) || defined(_WIN32)) && defined(_MSC_VER)
@@ -67,7 +68,9 @@ void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n)
 		free(tid); free(t.w);
 	} else {
 		long j;
-		for (j = 0; j < n; ++j) func(data, j, 0);
+		for (j = 0; j < n; ++j){
+			func(data, j, 0);
+		}
 	}
 }
 
@@ -98,9 +101,11 @@ static void *ktp_worker(void *data)
 {
 	ktp_worker_t *w = (ktp_worker_t*)data;
 	ktp_t *p = w->pl;
+	
 	while (w->step < p->n_steps) {
 		// test whether we can kick off the job with this worker
 		pthread_mutex_lock(&p->mutex);
+
 		for (;;) {
 			int i;
 			// test whether another worker is doing the same step
@@ -109,6 +114,7 @@ static void *ktp_worker(void *data)
 				if (p->workers[i].step <= w->step && p->workers[i].index < w->index)
 					break;
 			}
+
 			if (i == p->n_workers) break; // no workers with smaller indices are doing w->step or the previous steps
 			pthread_cond_wait(&p->cv, &p->mutex);
 		}
@@ -123,8 +129,10 @@ static void *ktp_worker(void *data)
 		if (w->step == 0) w->index = p->index++;
 		pthread_cond_broadcast(&p->cv);
 		pthread_mutex_unlock(&p->mutex);
+
 	}
-	pthread_exit(0);
+	//pthread_exit(0);
+	return NULL;
 }
 
 void kt_pipeline(int n_threads, void *(*func)(void*, int, void*), void *shared_data, int n_steps)
@@ -133,7 +141,7 @@ void kt_pipeline(int n_threads, void *(*func)(void*, int, void*), void *shared_d
 	pthread_t *tid;
 	int i;
 
-	if (n_threads < 1) n_threads = 1;
+	if (n_threads != 1) n_threads = 1;
 	aux.n_workers = n_threads;
 	aux.n_steps = n_steps;
 	aux.func = func;
@@ -150,8 +158,12 @@ void kt_pipeline(int n_threads, void *(*func)(void*, int, void*), void *shared_d
 	}
 
 	tid = (pthread_t*)calloc(n_threads, sizeof(pthread_t));
-	for (i = 0; i < n_threads; ++i) pthread_create(&tid[i], 0, ktp_worker, &aux.workers[i]);
-	for (i = 0; i < n_threads; ++i) pthread_join(tid[i], 0);
+	if(n_threads > 1){
+		for (i = 0; i < n_threads; ++i) pthread_create(&tid[i], 0, ktp_worker, &aux.workers[i]);
+		for (i = 0; i < n_threads; ++i) pthread_join(tid[i], 0);
+	}else{
+		ktp_worker(&aux.workers[0]);
+	}
 	free(tid); free(aux.workers);
 
 	pthread_mutex_destroy(&aux.mutex);
